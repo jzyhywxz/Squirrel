@@ -57,11 +57,14 @@ public class LocalService extends Service {
         }
 
         @Override
+        public void startServer() throws RemoteException {}
+
+        @Override
         public void stopServer() throws RemoteException {}
 
         @Override
-        public boolean isServerStopped() throws RemoteException {
-            return false;
+        public boolean isServerRunning() throws RemoteException {
+            return true;
         }
     }
 

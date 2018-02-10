@@ -12,7 +12,18 @@ import java.util.zip.ZipOutputStream;
  */
 
 public class ZipHelper {
-    public static void compress(String srcPath, String destPath, OnZipProgressListener listener) {
+    private int count;
+    private int index;
+    private OnZipProgressListener listener;
+
+    public void setOnZipProgressListener(OnZipProgressListener listener) {
+        this.listener = listener;
+    }
+
+    public void compress(String srcPath, String destPath) {
+        count = 0;
+        index = 0;
+
         if (srcPath == null || destPath == null) {
             return;
         }
@@ -27,12 +38,15 @@ public class ZipHelper {
             return;
         }
 
+        count = getFileCount(srcFile);
+        if (count <= 0) {
+            return;
+        }
+
         File destParentFile = destFile.getParentFile();
         if (!destParentFile.exists()) {
             destParentFile.mkdirs();
         }
-
-        int count = getFileCount(srcFile);
 
         ZipOutputStream os = null;
         try {
@@ -66,7 +80,7 @@ public class ZipHelper {
         }
     }
 
-    private static void doCompress(String parentPath, File srcFile, ZipOutputStream os, OnZipProgressListener listener) {
+    private void doCompress(String parentPath, File srcFile, ZipOutputStream os, OnZipProgressListener listener) {
         try {
             if (srcFile.isDirectory()) {
                 parentPath = parentPath + File.separator + srcFile.getName();
@@ -91,8 +105,9 @@ public class ZipHelper {
                 os.closeEntry();
                 is.close();
 
+                index++;
                 if (listener != null) {
-                    listener.onProgressUpdate(parentPath + File.separator + srcFile.getName());
+                    listener.onProgressUpdate(count, index, parentPath + File.separator + srcFile.getName());
                 }
             }
         } catch (IOException e) {
@@ -103,7 +118,7 @@ public class ZipHelper {
         }
     }
 
-    private static int getFileCount(File srcFile) {
+    private int getFileCount(File srcFile) {
         if (srcFile.isDirectory()) {
             File[] files = srcFile.listFiles();
             if (files == null || files.length <= 0) {
@@ -121,9 +136,9 @@ public class ZipHelper {
     }
 
     public interface OnZipProgressListener {
-        void onStarting(int total);
-        void onProgressUpdate(String filename);
-        void onFinished(String destPath);
-        void onCatchException(IOException e);
+        void onStarting(final int count);
+        void onProgressUpdate(final int count, final int index, final String filename);
+        void onFinished(final String destPath);
+        void onCatchException(final IOException e);
     }
 }

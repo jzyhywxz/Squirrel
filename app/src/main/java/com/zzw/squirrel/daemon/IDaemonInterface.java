@@ -12,16 +12,18 @@ import android.os.RemoteException;
 
 public interface IDaemonInterface extends IInterface {
     public String getServerName() throws RemoteException;
+    public void startServer() throws RemoteException;
     public void stopServer() throws RemoteException;
-    public boolean isServerStopped() throws RemoteException;
+    public boolean isServerRunning() throws RemoteException;
 
     /**
      * Local-side IPC implementation stub class.
      */
     public static abstract class Stub extends Binder implements IDaemonInterface {
         static final int TRANSACTION_getServerName = (IBinder.FIRST_CALL_TRANSACTION + 0);
-        static final int TRANSACTION_stopServer = (IBinder.FIRST_CALL_TRANSACTION + 1);
-        static final int TRANSACTION_isServerStopped = (IBinder.FIRST_CALL_TRANSACTION + 2);
+        static final int TRANSACTION_startServer = (IBinder.FIRST_CALL_TRANSACTION + 1);
+        static final int TRANSACTION_stopServer = (IBinder.FIRST_CALL_TRANSACTION + 2);
+        static final int TRANSACTION_isServerRunning = (IBinder.FIRST_CALL_TRANSACTION + 3);
         private static final String DESCRIPTOR = "com.zzw.squirrel.util.IDaemonInterface";
 
         /**
@@ -65,15 +67,21 @@ public interface IDaemonInterface extends IInterface {
                     reply.writeString(_result);
                     return true;
                 }
+                case TRANSACTION_startServer: {
+                    data.enforceInterface(DESCRIPTOR);
+                    this.startServer();
+                    reply.writeNoException();
+                    return true;
+                }
                 case TRANSACTION_stopServer: {
                     data.enforceInterface(DESCRIPTOR);
                     this.stopServer();
                     reply.writeNoException();
                     return true;
                 }
-                case TRANSACTION_isServerStopped: {
+                case TRANSACTION_isServerRunning: {
                     data.enforceInterface(DESCRIPTOR);
-                    boolean _result = this.isServerStopped();
+                    boolean _result = this.isServerRunning();
                     reply.writeNoException();
                     reply.writeInt((_result ? 1 : 0));
                     return true;
@@ -116,6 +124,20 @@ public interface IDaemonInterface extends IInterface {
             }
 
             @Override
+            public void startServer() throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    mRemote.transact(Stub.TRANSACTION_startServer, _data, _reply, 0);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
             public void stopServer() throws RemoteException {
                 Parcel _data = Parcel.obtain();
                 Parcel _reply = Parcel.obtain();
@@ -130,13 +152,13 @@ public interface IDaemonInterface extends IInterface {
             }
 
             @Override
-            public boolean isServerStopped() throws RemoteException {
+            public boolean isServerRunning() throws RemoteException {
                 Parcel _data = Parcel.obtain();
                 Parcel _reply = Parcel.obtain();
                 boolean _result;
                 try {
                     _data.writeInterfaceToken(DESCRIPTOR);
-                    mRemote.transact(Stub.TRANSACTION_isServerStopped, _data, _reply, 0);
+                    mRemote.transact(Stub.TRANSACTION_isServerRunning, _data, _reply, 0);
                     _reply.readException();
                     _result = (0 != _reply.readInt());
                 } finally {

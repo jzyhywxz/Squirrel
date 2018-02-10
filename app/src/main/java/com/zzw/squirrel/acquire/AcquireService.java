@@ -26,6 +26,7 @@ import com.zzw.squirrel.util.LimitedLog;
 import java.io.File;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class AcquireService extends Service {
     private static final String SERVICE_NAME = AcquireService.class.getSimpleName();
@@ -46,44 +47,46 @@ public class AcquireService extends Service {
 
     private Timer timer;
 
-    private boolean isStopped = true;
+    private boolean isRunning = false;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        LimitedLog.d(SERVICE_NAME + "#onCreate");
+
+        localConnection = new LocalServiceConnection();
+
         doInitialize();
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         super.onStartCommand(intent, flags, startId);
-        if (isStopped) {
-            doStart();
-        }
+        LimitedLog.d(SERVICE_NAME + "#onStartCommand");
+
+        bindService(new Intent(AcquireService.this, LocalService.class), localConnection, Context.BIND_IMPORTANT);
+
+        // restart self (system)
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        if (!isStopped) {
-            doStop();
-        }
-        // restart self
+        LimitedLog.d(SERVICE_NAME + "#onDestroy");
+
+        // restart self (custom)
         startService(new Intent(getApplicationContext(), AcquireService.class));
     }
 
     @Override
     public IBinder onBind(Intent intent) {
         LimitedLog.d(SERVICE_NAME + "#onBind");
-
         return new AcquireServiceBinder();
     }
 
-    private void doInitialize() {
-        LimitedLog.d(SERVICE_NAME + "#onCreate");
-
-        localConnection = new LocalServiceConnection();
+    private synchronized void doInitialize() {
+        LimitedLog.d(SERVICE_NAME + "#doInitialize");
 
         // initial tasks
         accStorageAgent = new StorageAgent<>();
@@ -110,12 +113,16 @@ public class AcquireService extends Service {
         };
 
         mediaPlayerHelper = new MediaPlayerHelper(this);
-
-        timer = new Timer(true);
     }
 
-    private void doStart() {
-        LimitedLog.d(SERVICE_NAME + "#onStartCommand");
+    private synchronized void doStart() {
+        if (isRunning) {
+            LimitedLog.d(SERVICE_NAME + "#doStart: ignore");
+            return;
+        } else {
+            LimitedLog.d(SERVICE_NAME + "#doStart: execute");
+            isRunning = true;
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
             Notification notification = new Notification.Builder(this).
@@ -131,10 +138,8 @@ public class AcquireService extends Service {
         // start playing silent music
         mediaPlayerHelper.start();
 
-        // bind to LocalService
-        bindService(new Intent(AcquireService.this, LocalService.class), localConnection, Context.BIND_IMPORTANT);
-
         // start tasks
+        timer = new Timer(true);
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
@@ -159,18 +164,22 @@ public class AcquireService extends Service {
         accSensorAgent.register(Sensor.TYPE_ACCELEROMETER);
         laccSensorAgent.register(Sensor.TYPE_LINEAR_ACCELERATION);
         gyroSensorAgent.register(Sensor.TYPE_GYROSCOPE);
-
-        isStopped = false;
     }
 
-    private void doStop() {
-        LimitedLog.d(SERVICE_NAME + "#onDestroy");
+    private synchronized void doStop() {
+        if (!isRunning) {
+            LimitedLog.d(SERVICE_NAME + "#doStop: ignore");
+            return;
+        } else {
+            LimitedLog.d(SERVICE_NAME + "#onDestroy");
+            isRunning = false;
+        }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
             NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
             manager.cancel(NOTIFICATION_ID);
+            stopForeground(true);
         }
-        stopForeground(true);
 
         // stop tasks
         accSensorAgent.unregister();
@@ -184,8 +193,6 @@ public class AcquireService extends Service {
         mediaPlayerHelper.stop();
 
         timer.cancel();
-
-        isStopped = true;
     }
 
     private class AcquireServiceBinder extends IDaemonInterface.Stub {
@@ -195,15 +202,18 @@ public class AcquireService extends Service {
         }
 
         @Override
-        public void stopServer() throws RemoteException {
-            if (!isStopped) {
-                doStop();
-            }
+        public void startServer() throws RemoteException {
+            doStart();
         }
 
         @Override
-        public boolean isServerStopped() throws RemoteException {
-            return isStopped;
+        public void stopServer() throws RemoteException {
+            doStop();
+        }
+
+        @Override
+        public boolean isServerRunning() throws RemoteException {
+            return isRunning;
         }
     }
 

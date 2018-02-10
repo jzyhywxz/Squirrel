@@ -1,6 +1,7 @@
 package com.zzw.squirrel.activity;
 
 import android.Manifest;
+import android.app.ProgressDialog;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -8,7 +9,9 @@ import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Message;
 import android.os.RemoteException;
 import android.support.annotation.NonNull;
 import android.support.v4.app.ActivityCompat;
@@ -35,7 +38,8 @@ import com.zzw.squirrel.util.LimitedLog;
 import java.io.IOException;
 import java.util.Arrays;
 
-public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipProgressListener {
+public class MainActivity extends AppCompatActivity implements
+        ServiceConnection, ZipHelper.OnZipProgressListener {
     private static final String ACTIVITY_NAME = MainActivity.class.getSimpleName();
 
     private Button startBt;
@@ -43,33 +47,52 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
     private Button packBt;
     private TextView infoTx;
 
-    private IDaemonInterface binder;
-    private ServiceConnection connection;
+    private Handler acquireHandler;
+    private IDaemonInterface acquireBinder;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
         LimitedLog.d(ACTIVITY_NAME + "#onCreate");
 
         initView();
         initEvent();
 
-        if (savedInstanceState != null) {
-            boolean startState = savedInstanceState.getBoolean("START_STATE", true);
-            boolean stopState = savedInstanceState.getBoolean("STOP_STATE", false);
-            boolean packState = savedInstanceState.getBoolean("PACK_STATE", true);
-            setButtonState(startState, stopState, packState);
-            infoTx.setText(savedInstanceState.getString("INFO_TEXT", ""));
-        } else {
-            setButtonState(true, false, true);
-        }
+        acquireHandler = new AcquireHandle(MainActivity.this);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             if (!checkPermissions()) {
                 applyPermissions();
+            } else {
+                enter();
             }
+        } else {
+            enter();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        LimitedLog.d(ACTIVITY_NAME + "#onResume");
+
+        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) && checkPermissions()) {
+            activeBinder();
+        } else {
+            activeBinder();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        LimitedLog.d(ACTIVITY_NAME + "#onPause");
+
+        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) && checkPermissions()) {
+            unbindService(MainActivity.this);
+        } else {
+            unbindService(MainActivity.this);
         }
     }
 
@@ -77,16 +100,6 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
     protected void onDestroy() {
         super.onDestroy();
         LimitedLog.d(ACTIVITY_NAME + "#onDestroy");
-    }
-
-    @Override
-    protected void onSaveInstanceState(Bundle outState) {
-        super.onSaveInstanceState(outState);
-
-        outState.putBoolean("START_STATE", startBt.isClickable());
-        outState.putBoolean("STOP_STATE", stopBt.isClickable());
-        outState.putBoolean("PACK_STATE", packBt.isClickable());
-        outState.putString("INFO_TEXT", infoTx.getText().toString());
     }
 
     private void initView() {
@@ -102,15 +115,14 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
             public void onClick(View v) {
                 LimitedLog.d("startBUTTON#onClick");
 
-                startService(new Intent(MainActivity.this, LocalService.class));
-                startService(new Intent(MainActivity.this, RemoteService.class));
-                startService(new Intent(MainActivity.this, AcquireService.class));
-                bindService(new Intent(MainActivity.this, AcquireService.class),
-                        new AcquireServiceConnection(METHOD_isServerStopped),
-                        Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
+                try {
+                    acquireBinder.startServer();
+                } catch (RemoteException e) {
+                    LimitedLog.e(e.getMessage());
+                }
 
-                infoTx.setText("数据采集正在进行");
                 setButtonState(false, true, true);
+                infoTx.setText("正在采集数据");
             }
         });
         stopBt.setOnClickListener(new View.OnClickListener() {
@@ -119,18 +131,13 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
                 LimitedLog.d("stopBUTTON#onClick");
 
                 try {
-                    if (binder != null) {
-                        binder.stopServer();
-                        infoTx.setText("数据采集已经停止");
-                        setButtonState(true, false, true);
-                    } else {
-                        bindService(new Intent(MainActivity.this, AcquireService.class),
-                                new AcquireServiceConnection(METHOD_stopServer),
-                                Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
-                    }
+                    acquireBinder.stopServer();
                 } catch (RemoteException e) {
-                    e.printStackTrace();
+                    LimitedLog.e(e.getMessage());
                 }
+
+                setButtonState(true, false, true);
+                infoTx.setText("未在采集数据");
             }
         });
         packBt.setOnClickListener(new View.OnClickListener() {
@@ -139,15 +146,9 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
                 LimitedLog.d("packBUTTON#onClick");
 
                 try {
-                    if (binder != null) {
-                        binder.stopServer();
-                    } else {
-                        bindService(new Intent(MainActivity.this, AcquireService.class),
-                                new AcquireServiceConnection(METHOD_stopServer),
-                                Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
-                    }
+                    acquireBinder.stopServer();
                 } catch (RemoteException e) {
-                    e.printStackTrace();
+                    LimitedLog.e(e.getMessage());
                 }
 
                 setButtonState(false, false, false);
@@ -168,10 +169,12 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
                                 new Thread() {
                                     @Override
                                     public void run() {
-                                        ZipHelper.compress(AppHelper.getDataDir(),
-                                                AppHelper.getPackFile(),
-                                                MainActivity.this);
+                                        ZipHelper zipHelper = new ZipHelper();
+                                        zipHelper.setOnZipProgressListener(MainActivity.this);
+                                        zipHelper.compress(AppHelper.getDataDir(), AppHelper.getPackFile());
+
                                         AppHelper.deleteDataFiles();
+
                                         MainActivity.this.runOnUiThread(new Runnable() {
                                             @Override
                                             public void run() {
@@ -188,9 +191,10 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
                                 new Thread() {
                                     @Override
                                     public void run() {
-                                        ZipHelper.compress(AppHelper.getDataDir(),
-                                                AppHelper.getPackFile(),
-                                                MainActivity.this);
+                                        ZipHelper zipHelper = new ZipHelper();
+                                        zipHelper.setOnZipProgressListener(MainActivity.this);
+                                        zipHelper.compress(AppHelper.getDataDir(), AppHelper.getPackFile());
+
                                         MainActivity.this.runOnUiThread(new Runnable() {
                                             @Override
                                             public void run() {
@@ -242,12 +246,50 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
                     }
                     if (!isGranted) {
                         finish();
+                    } else {
+                        enter();
                     }
                 }
                 break;
             default:
                 super.onRequestPermissionsResult(requestCode, permissions, grantResults);
                 break;
+        }
+    }
+
+    private void enter() {
+//        startService(new Intent(MainActivity.this, LocalService.class));
+//        startService(new Intent(MainActivity.this, RemoteService.class));
+//        startService(new Intent(MainActivity.this, AcquireService.class));
+    }
+
+    private void activeBinder() {
+        if (acquireBinder == null) {
+            // enable acquire binder
+            acquireHandler.sendEmptyMessage(AcquireHandle.SHOW_WAIT_DIALOG);
+
+            startService(new Intent(MainActivity.this, LocalService.class));
+            startService(new Intent(MainActivity.this, RemoteService.class));
+            startService(new Intent(MainActivity.this, AcquireService.class));
+
+            bindService(new Intent(MainActivity.this, AcquireService.class),
+                    MainActivity.this,
+                    Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
+        } else {
+            try {
+                acquireBinder.getServerName();
+            } catch (RemoteException e) {
+                // enable acquire binder
+                acquireHandler.sendEmptyMessage(AcquireHandle.SHOW_WAIT_DIALOG);
+
+                startService(new Intent(MainActivity.this, LocalService.class));
+                startService(new Intent(MainActivity.this, RemoteService.class));
+                startService(new Intent(MainActivity.this, AcquireService.class));
+
+                bindService(new Intent(MainActivity.this, AcquireService.class),
+                        MainActivity.this,
+                        Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
+            }
         }
     }
 
@@ -260,29 +302,54 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
         packBt.setEnabled(pack);
     }
 
-    // ==================== OnZipProgressListener ====================
-    private int packTotal = 0;
-    private int packCurrent = 0;
+    // ==================== ServiceConnection ====================
+    @Override
+    public void onServiceConnected(ComponentName name, IBinder service) {
+        LimitedLog.d(ACTIVITY_NAME + "#onServiceConnected");
+        acquireBinder = IDaemonInterface.Stub.asInterface(service);
+
+        try {
+            final boolean isRunning = acquireBinder.isServerRunning();
+            MainActivity.this.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    setButtonState(!isRunning, isRunning, true);
+                    infoTx.setText((isRunning) ? "正在采集数据" : "未在采集数据");
+                }
+            });
+        } catch (RemoteException e) {
+            LimitedLog.e(e.getMessage());
+        }
+
+        if (acquireHandler != null) {
+            acquireHandler.sendEmptyMessage(AcquireHandle.HIDE_WAIT_DIALOG);
+        }
+    }
 
     @Override
-    public void onStarting(final int total) {
+    public void onServiceDisconnected(ComponentName name) {
+        LimitedLog.d(ACTIVITY_NAME + "#onServiceDisconnected");
+        acquireBinder = null;
+    }
+    // ==================== ServiceConnection ====================
+
+    // ==================== OnZipProgressListener ====================
+    @Override
+    public void onStarting(final int count) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                packTotal = total;
-                packCurrent = 0;
                 infoTx.setText("开始压缩");
             }
         });
     }
 
     @Override
-    public void onProgressUpdate(final String filename) {
+    public void onProgressUpdate(final int count, final int index, final String filename) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
-                packCurrent++;
-                infoTx.setText(String.format("正在压缩 [%3d / %3d] %s", packCurrent, packTotal, filename));
+                infoTx.setText(String.format("正在压缩 [%3d / %3d] %s", index, count, filename));
             }
         });
     }
@@ -308,42 +375,40 @@ public class MainActivity extends AppCompatActivity implements ZipHelper.OnZipPr
     }
     // ==================== OnZipProgressListener ====================
 
-    private static final int METHOD_isServerStopped = 0;
-    private static final int METHOD_stopServer = 1;
+    // ==================== Custom Handle ====================
+    private static class AcquireHandle extends Handler {
+        public static final int SHOW_WAIT_DIALOG = 0;
+        public static final int HIDE_WAIT_DIALOG = 1;
+        private ProgressDialog dialog;
 
-    private class AcquireServiceConnection implements ServiceConnection {
-        private int methodId;
-
-        public AcquireServiceConnection(int methodId) {
-            this.methodId = methodId;
+        public AcquireHandle(Context context) {
+            dialog = new ProgressDialog(context);
+            dialog.setTitle("正在同步");
+            dialog.setMessage("同步中，请稍候...");
+            dialog.setCancelable(false);
         }
 
         @Override
-        public void onServiceConnected(ComponentName name, IBinder service) {
-            LimitedLog.d(ACTIVITY_NAME + ".AcquireServiceConnection#onServiceConnected");
-            binder = IDaemonInterface.Stub.asInterface(service);
-            try {
-                switch (methodId) {
-                    case METHOD_isServerStopped: {
-                        break;
+        public void handleMessage(Message msg) {
+            switch (msg.what) {
+                case SHOW_WAIT_DIALOG: {
+                    if (!dialog.isShowing()) {
+                        dialog.show();
                     }
-                    case METHOD_stopServer: {
-                        binder.stopServer();
-                        setButtonState(true, false, true);
-                        break;
-                    }
-                    default: {
-                        break;
-                    }
+                    break;
                 }
-            } catch (RemoteException e) {
-                e.printStackTrace();
+                case HIDE_WAIT_DIALOG: {
+                    if (dialog.isShowing()) {
+                        dialog.dismiss();
+                    }
+                    break;
+                }
+                default: {
+                    super.handleMessage(msg);
+                    break;
+                }
             }
         }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            LimitedLog.d(ACTIVITY_NAME + ".AcquireServiceConnection#onServiceDisconnected");
-        }
     }
+    // ==================== Custom Handle ====================
 }
