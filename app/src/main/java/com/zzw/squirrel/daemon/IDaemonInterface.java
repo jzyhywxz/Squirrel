@@ -12,12 +12,16 @@ import android.os.RemoteException;
 
 public interface IDaemonInterface extends IInterface {
     public String getServerName() throws RemoteException;
+    public void stopServer() throws RemoteException;
+    public boolean isServerStopped() throws RemoteException;
 
     /**
      * Local-side IPC implementation stub class.
      */
     public static abstract class Stub extends Binder implements IDaemonInterface {
         static final int TRANSACTION_getServerName = (IBinder.FIRST_CALL_TRANSACTION + 0);
+        static final int TRANSACTION_stopServer = (IBinder.FIRST_CALL_TRANSACTION + 1);
+        static final int TRANSACTION_isServerStopped = (IBinder.FIRST_CALL_TRANSACTION + 2);
         private static final String DESCRIPTOR = "com.zzw.squirrel.util.IDaemonInterface";
 
         /**
@@ -61,6 +65,19 @@ public interface IDaemonInterface extends IInterface {
                     reply.writeString(_result);
                     return true;
                 }
+                case TRANSACTION_stopServer: {
+                    data.enforceInterface(DESCRIPTOR);
+                    this.stopServer();
+                    reply.writeNoException();
+                    return true;
+                }
+                case TRANSACTION_isServerStopped: {
+                    data.enforceInterface(DESCRIPTOR);
+                    boolean _result = this.isServerStopped();
+                    reply.writeNoException();
+                    reply.writeInt((_result ? 1 : 0));
+                    return true;
+                }
             }
             return super.onTransact(code, data, reply, flags);
         }
@@ -91,6 +108,37 @@ public interface IDaemonInterface extends IInterface {
                     mRemote.transact(Stub.TRANSACTION_getServerName, _data, _reply, 0);
                     _reply.readException();
                     _result = _reply.readString();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+                return _result;
+            }
+
+            @Override
+            public void stopServer() throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    mRemote.transact(Stub.TRANSACTION_stopServer, _data, _reply, 0);
+                    _reply.readException();
+                } finally {
+                    _reply.recycle();
+                    _data.recycle();
+                }
+            }
+
+            @Override
+            public boolean isServerStopped() throws RemoteException {
+                Parcel _data = Parcel.obtain();
+                Parcel _reply = Parcel.obtain();
+                boolean _result;
+                try {
+                    _data.writeInterfaceToken(DESCRIPTOR);
+                    mRemote.transact(Stub.TRANSACTION_isServerStopped, _data, _reply, 0);
+                    _reply.readException();
+                    _result = (0 != _reply.readInt());
                 } finally {
                     _reply.recycle();
                     _data.recycle();

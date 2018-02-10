@@ -22,21 +22,21 @@ public class AwakenReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        LimitedLog.d("system receiver: " + intent.getAction());
-
-        boolean isAlive = false;
-        ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-        List<ActivityManager.RunningAppProcessInfo> appProcessInfos = activityManager.getRunningAppProcesses();
-        for (ActivityManager.RunningAppProcessInfo appProcessInfo : appProcessInfos) {
-            if (appProcessInfo.processName.equals(AppHelper.PACKAGE_NAME)) {
-                isAlive = true;
-                break;
-            }
-        }
-
-        if (!isAlive) {
-            startServices(context);
-        }
+//        LimitedLog.d("system receiver: " + intent.getAction());
+//
+//        boolean isAlive = false;
+//        ActivityManager activityManager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+//        List<ActivityManager.RunningAppProcessInfo> appProcessInfos = activityManager.getRunningAppProcesses();
+//        for (ActivityManager.RunningAppProcessInfo appProcessInfo : appProcessInfos) {
+//            if (appProcessInfo.processName.equals(AppHelper.PACKAGE_NAME)) {
+//                isAlive = true;
+//                break;
+//            }
+//        }
+//
+//        if (!isAlive) {
+//            startServices(context);
+//        }
     }
 
     private void onNetworkChanged(Context context, Intent intent) {

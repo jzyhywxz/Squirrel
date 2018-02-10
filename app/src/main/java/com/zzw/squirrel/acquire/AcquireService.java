@@ -1,6 +1,7 @@
 package com.zzw.squirrel.acquire;
 
 import android.app.Notification;
+import android.app.NotificationManager;
 import android.app.Service;
 import android.content.ComponentName;
 import android.content.Context;
@@ -45,24 +46,44 @@ public class AcquireService extends Service {
 
     private Timer timer;
 
+    private boolean isStopped = true;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        doInitialize();
+    }
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        super.onStartCommand(intent, flags, startId);
+        if (isStopped) {
+            doStart();
+        }
+        return START_STICKY;
+    }
+
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        if (!isStopped) {
+            doStop();
+        }
+        // restart self
+        startService(new Intent(getApplicationContext(), AcquireService.class));
+    }
+
+    @Override
+    public IBinder onBind(Intent intent) {
+        LimitedLog.d(SERVICE_NAME + "#onBind");
+
+        return new AcquireServiceBinder();
+    }
+
+    private void doInitialize() {
         LimitedLog.d(SERVICE_NAME + "#onCreate");
 
         localConnection = new LocalServiceConnection();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
-            Notification notification = new Notification.Builder(this).
-                    setSmallIcon(R.mipmap.ic_launcher).
-                    setContentTitle("Squirrel").
-                    setContentText("data acquisition running...").
-                    build();
-            startForeground(NOTIFICATION_ID, notification);
-        } else {
-            startForeground(NOTIFICATION_ID, new Notification());
-        }
 
         // initial tasks
         accStorageAgent = new StorageAgent<>();
@@ -93,11 +114,19 @@ public class AcquireService extends Service {
         timer = new Timer(true);
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        super.onStartCommand(intent, flags, startId);
-
+    private void doStart() {
         LimitedLog.d(SERVICE_NAME + "#onStartCommand");
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+            Notification notification = new Notification.Builder(this).
+                    setSmallIcon(R.mipmap.ic_launcher).
+                    setContentTitle("Squirrel").
+                    setContentText("data acquisition running...").
+                    build();
+            startForeground(NOTIFICATION_ID, notification);
+        } else {
+            startForeground(NOTIFICATION_ID, new Notification());
+        }
 
         // start playing silent music
         mediaPlayerHelper.start();
@@ -131,14 +160,17 @@ public class AcquireService extends Service {
         laccSensorAgent.register(Sensor.TYPE_LINEAR_ACCELERATION);
         gyroSensorAgent.register(Sensor.TYPE_GYROSCOPE);
 
-        return START_STICKY;
+        isStopped = false;
     }
 
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-
+    private void doStop() {
         LimitedLog.d(SERVICE_NAME + "#onDestroy");
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            manager.cancel(NOTIFICATION_ID);
+        }
+        stopForeground(true);
 
         // stop tasks
         accSensorAgent.unregister();
@@ -153,21 +185,25 @@ public class AcquireService extends Service {
 
         timer.cancel();
 
-        // restart self
-        startService(new Intent(getApplicationContext(), AcquireService.class));
-    }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        LimitedLog.d(SERVICE_NAME + "#onBind");
-
-        return new AcquireServiceBinder();
+        isStopped = true;
     }
 
     private class AcquireServiceBinder extends IDaemonInterface.Stub {
         @Override
         public String getServerName() throws RemoteException {
             return SERVICE_NAME;
+        }
+
+        @Override
+        public void stopServer() throws RemoteException {
+            if (!isStopped) {
+                doStop();
+            }
+        }
+
+        @Override
+        public boolean isServerStopped() throws RemoteException {
+            return isStopped;
         }
     }
 

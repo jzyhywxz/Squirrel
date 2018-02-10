@@ -55,6 +55,14 @@ public class RemoteService extends Service {
         public String getServerName() throws RemoteException {
             return SERVICE_NAME;
         }
+
+        @Override
+        public void stopServer() throws RemoteException {}
+
+        @Override
+        public boolean isServerStopped() throws RemoteException {
+            return false;
+        }
     }
 
     private class LocalServiceConnection implements ServiceConnection {

@@ -3,6 +3,7 @@ package com.zzw.squirrel.util;
 import android.os.Environment;
 
 import java.io.File;
+import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
@@ -48,5 +49,38 @@ public class AppHelper {
         } else {
             return null;
         }
+    }
+
+    public static String getPackDir() {
+        String appRoot = getAppRoot();
+        return (appRoot == null) ? null : (appRoot + File.separator + "pack");
+    }
+
+    public static String getPackFile() {
+        String packDir = getPackDir();
+        return (packDir == null) ? null : (packDir + File.separator + FORMAT_SDF.format(new Date(System.currentTimeMillis())) + ".zip");
+    }
+
+    public static void deleteDataFiles() {
+        String dataDir = getDataDir();
+        if (dataDir != null) {
+            deleteFile(new File(dataDir));
+        }
+    }
+
+    private static void deleteFile(File srcFile) {
+        if ((srcFile == null) || (!srcFile.exists())) {
+            return;
+        }
+
+        if (srcFile.isDirectory()) {
+            File[] files = srcFile.listFiles();
+            if (files != null && files.length > 0) {
+                for (File file : files) {
+                    deleteFile(file);
+                }
+            }
+        }
+        srcFile.delete();
     }
 }
