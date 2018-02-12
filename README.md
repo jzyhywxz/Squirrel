@@ -610,5 +610,8 @@ public class MainActivity extends AppCompatActivity implements ServiceConnection
 
 在此强烈呼吁各位读者不要做那些降低甚至是违背用户体验的黑科技，自己研究研究玩玩就好了，在真实的项目开发中能不用就不用。
 
-![fightingZh](doc-res/qrcode.jpg)
+<div style="align:center">
+<img src="doc-res/qrcode.jpg" alt="fightingZh">
+<br>
 欢迎关注微信公众号fightingZh
+</div>
